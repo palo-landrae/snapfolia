@@ -1,0 +1,10 @@
+fastapi
+pydantic
+celery
+pydantic_settings
+uvicorn
+python-multipart
+redis
+opencv-python-headless
+Werkzeug
+aiofiles
