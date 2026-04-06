@@ -12,6 +12,7 @@ class Detection(BaseModel):
 class DetectionResponse(BaseModel):
     status: Literal["success", "pending", "failure", "cached"]
     task_id: str | None = None
+    message: str | None = None
     result: List[Detection] = []
     image_path: str | None = None
     file_hash: str | None = None
@@ -31,7 +32,7 @@ class SpeedMetrics(BaseModel):
 
 
 class ClassificationResponse(BaseModel):
-    status: str
+    status: Literal["success", "pending", "failure", "cached"]
     task_id: str | None = None
     message: str | None = None
     results: List[Classification] = []

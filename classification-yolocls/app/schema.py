@@ -1,5 +1,5 @@
 from pydantic import BaseModel
-from typing import List
+from typing import List, Literal
 
 
 class Classification(BaseModel):
@@ -14,18 +14,36 @@ class SpeedMetrics(BaseModel):
     postprocess: float
     total: float
 
+
 class InferenceResult(BaseModel):
-    status: str
+    status: Literal["success", "pending", "failure", "cached"]
     message: str | None = None
     results: List[Classification] = []
     speed_ms: SpeedMetrics | None = None
 
 
 class ClassificationResponse(BaseModel):
-    status: str
+    status: Literal["success", "pending", "failure", "cached"]
     task_id: str | None = None
     message: str | None = None
     results: List[Classification] = []
     speed_ms: SpeedMetrics | None = None
     file_hash: str | None = None
     image_path: str | None = None
+
+
+class Detection(BaseModel):
+    class_name: str
+    class_id: int
+    confidence: float
+    bbox: List[float]  # [x1, y1, x2, y2]
+
+
+class DetectionResponse(BaseModel):
+    status: Literal["success", "pending", "failure", "cached"]
+    task_id: str | None = None
+    message: str | None = None
+    result: List[Detection] = []
+    original_image_path: str | None = None
+    cropped_image_path: str | None = None
+    file_hash: str | None = None

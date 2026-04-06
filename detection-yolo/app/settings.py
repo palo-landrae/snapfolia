@@ -4,7 +4,7 @@ from typing import List
 from pathlib import Path
 
 # Adjusting to ensure we find the .env at the project root
-BASE_DIR = Path(__file__).resolve().parents[3]
+BASE_DIR = Path(__file__).resolve().parents[2]
 ENV_PATH = BASE_DIR / ".env"
 
 
@@ -18,7 +18,8 @@ class Settings(BaseSettings):
     RABBITMQ_URL: str = Field(default="amqp://guest:guest@rabbitmq:5672//")
     UPLOAD_DIR: str = Field(default="/volumes/images")
     REDIS_URL: str = Field(default="redis://localhost:6379/0")
-    MODEL_PATH: str = Field(default="/app/models/best.pt")
+    MODEL_VERSION: str = Field(default="v1")
+    YOLO_MODEL_PATH: str = Field(default="/app/models/best.pt")
 
 
 settings = Settings()

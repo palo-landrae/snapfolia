@@ -4,7 +4,7 @@ from typing import Any, Dict, Optional
 
 from app.client import celery_app
 from app.engine import YoloClsEngine
-from app.schema import ClassificationResponse
+from app.schema import ClassificationResponse, DetectionResponse
 from app.settings import settings
 from app.redis_cache import cache_service
 
@@ -37,33 +37,18 @@ class ClassificationTask:
     max_retries=3,  # Retries on transient failures
     default_retry_delay=5,  # Seconds between retries
 )
-def classify_objects(self, image_path: str, top_k: int = 3) -> Dict[str, Any]:
+def classify_objects(self, detection_response:  Dict[str, Any]) -> Dict[str, Any]:
     """
     Celery task to perform object classification on an image.
     Includes caching based on image content hash.
     """
-    logger.info(
-        f"Starting classification task for image: {image_path} (top_k: {top_k})"
-    )
 
     try:
-        # 1. Compute image hash for caching
-        try:
-            img_hash = cache_service.compute_image_hash(image_path)
-        except FileNotFoundError:
-            logger.error(f"Image file not found at path: {image_path}")
-            return ClassificationResponse(
-                status="error",
-                message="File not found",
-                results=[],
-                speed_ms=None,
-            ).model_dump()
-
-        # 2. Check Cache
-        cached_result = cache_service.get(img_hash)
-        if cached_result:
-            logger.info(f"Cache hit for image hash: {img_hash}")
-            return cached_result
+        data = DetectionResponse.model_validate(detection_response)
+        image_path = data.cropped_image_path
+        if image_path is None:
+            logger.error("Received None instead of a valid image path")
+            return {"status": "error", "message": "No image path provided"}
 
         # 3. Load Image
         img = cv2.imread(image_path)
@@ -73,7 +58,7 @@ def classify_objects(self, image_path: str, top_k: int = 3) -> Dict[str, Any]:
 
         # 4. Inference
         engine = ClassificationTask.get_engine()
-        inference_results = engine.predict(img, top_k=top_k)
+        inference_results = engine.predict(img, top_k=3)
 
         message = f"Task completed successfully. Found {len(inference_results.results)} objects."
 
@@ -83,7 +68,6 @@ def classify_objects(self, image_path: str, top_k: int = 3) -> Dict[str, Any]:
             speed_ms=inference_results.speed_ms,
             task_id=self.request.id,
             image_path=image_path,
-            file_hash=img_hash,
             message=message,
         )
 
@@ -92,8 +76,6 @@ def classify_objects(self, image_path: str, top_k: int = 3) -> Dict[str, Any]:
         )
 
         json_response = response_dict.model_dump()
-
-        cache_service.set(img_hash, json_response)
 
         return json_response
 

@@ -4,9 +4,9 @@ import numpy as np
 from typing import Dict, Any
 from ultralytics import YOLO
 
-from app.schemas.detection import Detection, DetectionResponse
+from app.schema import Detection, DetectionResponse
 
-# Standardized logging
+
 logger = logging.getLogger(__name__)
 
 
@@ -33,7 +33,7 @@ class YoloEngine:
             self.ready = False
             logger.error(f"Critical failure loading YOLO model: {e}", exc_info=True)
 
-    def predict(self, img: np.ndarray, confidence: float = 0.2) -> Dict[str, Any]:
+    def predict(self, img: np.ndarray, confidence: float = 0.7) -> Dict[str, Any]:
         """
         Performs object detection inference on the provided image.
         """
@@ -42,23 +42,17 @@ class YoloEngine:
             return {"status": "error", "message": "Engine not initialized"}
 
         try:
-            # Perform inference
-            # verbose=False reduces log clutter in Celery workers
             results = self.model.predict(img, conf=confidence, verbose=False)
-
             detections = []
+
             for r in results:
                 if r.boxes is None:
                     continue
-
-                # Extract names dict from the results object
                 names = getattr(r, "names", {})
 
                 for box in r.boxes:
-                    # Explicitly cast types to satisfy JSON serialization/Pydantic
                     class_id = int(box.cls[0])
                     class_name = names.get(class_id, "unknown")
-
                     detection = Detection(
                         class_name=class_name,
                         class_id=class_id,
@@ -67,8 +61,7 @@ class YoloEngine:
                     )
                     detections.append(detection)
 
-            response = DetectionResponse(status="success", result=detections)
-            return response.model_dump()
+            return DetectionResponse(status="success", result=detections).model_dump()
 
         except Exception as e:
             logger.exception(f"Inference error: {e}")
@@ -78,13 +71,12 @@ class YoloEngine:
         """
         Performs a heartbeat check on the model and hardware.
         """
-        # 1. Check if the wrapper itself exists
-        if not self.ready or self.model is None:
-            return False
-
         try:
+            # 1. Check if the wrapper itself exists
+            if not self.ready or self.model is None:
+                return False
+
             # 2. Safely check if the underlying PyTorch model is loaded
-            # Ultralytics stores the torch.nn.Module in the .model attribute
             torch_model = getattr(self.model, "model", None)
 
             if torch_model is None:

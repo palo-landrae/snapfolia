@@ -40,7 +40,7 @@ class YoloClsEngine:
         if not self.ready or self.model is None:
             logger.error("Inference attempted on uninitialized or failed engine.")
             return InferenceResult(
-                status="error",
+                status="failure",
                 message="Engine not initialized",
                 results=[],
                 speed_ms=None,
@@ -87,7 +87,7 @@ class YoloClsEngine:
         except Exception as e:
             logger.exception(f"Inference error: {e}")
             return InferenceResult(
-                status="error",
+                status="failure",
                 message=str(e),
                 results=[],
                 speed_ms=None,

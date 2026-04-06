@@ -16,4 +16,4 @@ RUN pip install --no-cache-dir \
 
 COPY ./app ./app
 
-CMD ["celery", "-A", "app.workers.client", "worker", "-Q", "detection", "--loglevel=info"]
+CMD ["celery", "-A", "app.services.celery_client", "worker", "-Q", "detection", "--loglevel=info"]
