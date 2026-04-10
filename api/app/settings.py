@@ -3,7 +3,7 @@ from pydantic import Field
 from pathlib import Path
 
 # Adjusting to ensure we find the .env at the project root
-BASE_DIR = Path(__file__).resolve().parents[3]
+BASE_DIR = Path(__file__).resolve().parents[2]
 ENV_PATH = BASE_DIR / ".env"
 
 

@@ -3,7 +3,7 @@ import hashlib
 from fastapi import UploadFile
 import redis
 from typing import Any, Optional
-from app.core.settings import settings
+from app.settings import settings
 
 
 class RedisCacheClient:

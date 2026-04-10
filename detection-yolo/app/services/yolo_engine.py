@@ -43,6 +43,7 @@ class YoloEngine:
 
         try:
             results = self.model.predict(img, conf=confidence, verbose=False)
+            logging.info(f"Inference completed for image. Processing results... {results}")
             detections = []
 
             for r in results:

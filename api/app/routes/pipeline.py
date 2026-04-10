@@ -1,11 +1,11 @@
 from fastapi import APIRouter, UploadFile, HTTPException
 from celery import chain  # Import chain correctly
-from app.core.schema import ClassificationResponse
-from app.core.settings import settings
+from app.schema import ClassificationResponse
+from app.settings import settings
 
 # Assuming 'celery_app' is your Celery instance imported from your celery config
 from app.services.celery import celery
-from app.services.redis_cache_client import cache_service
+from app.services.redis_client import cache_service
 from app.services.image_processor import ImageProcessor
 
 router = APIRouter()
@@ -17,9 +17,9 @@ async def start_pipeline(file: UploadFile):
     # 1. Compute hash for caching
     # Important: Ensure compute_hash_from_upload handles the file pointer correctly
     file_hash = cache_service.compute_hash_from_upload(file)
-
+    cache_key = cache_service.generate_cache_key(file_hash, "v1")
     # 2. Check Cache
-    cached_result = cache_service.get(file_hash)
+    cached_result = cache_service.get_json(cache_key)
     if cached_result:
         # Re-validate cached data into our Pydantic model
         response = ClassificationResponse.model_validate(cached_result)
@@ -39,7 +39,7 @@ async def start_pipeline(file: UploadFile):
     # Task 1: Detect & Crop -> Task 2: Classify Crop
     workflow = chain(
         celery.signature(
-            "object_detection_task", args=[str(file_path), 0.4], queue="detection"
+            "object_detection_task", args=[str(file_path), 0.1], queue="detection"
         ),
         celery.signature("classify_objects_task", queue="classification"),
     )
@@ -55,7 +55,7 @@ async def start_pipeline(file: UploadFile):
     return ClassificationResponse(
         status="pending",
         task_id=str(result.id),  # This is the ID of the LAST task in the chain
-        image_path=str(file_path),
+        original_image_path=str(file_path),
         results=[],
         file_hash=file_hash,
     )

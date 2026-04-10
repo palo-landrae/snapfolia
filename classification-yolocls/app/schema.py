@@ -1,5 +1,12 @@
-from pydantic import BaseModel
-from typing import List, Literal
+from pydantic import BaseModel, ConfigDict
+from typing import List, Literal, Optional
+
+
+class Detection(BaseModel):
+    class_name: str
+    class_id: int
+    confidence: float
+    bbox: List[float]  # [x1, y1, x2, y2]
 
 
 class Classification(BaseModel):
@@ -28,22 +35,19 @@ class ClassificationResponse(BaseModel):
     message: str | None = None
     results: List[Classification] = []
     speed_ms: SpeedMetrics | None = None
-    file_hash: str | None = None
-    image_path: str | None = None
-
-
-class Detection(BaseModel):
-    class_name: str
-    class_id: int
-    confidence: float
-    bbox: List[float]  # [x1, y1, x2, y2]
+    detections: List[Detection] = []
+    original_image_path: Optional[str] = None
+    cropped_image_path: Optional[str] = None
+    file_hash: Optional[str] = None
 
 
 class DetectionResponse(BaseModel):
-    status: Literal["success", "pending", "failure", "cached"]
-    task_id: str | None = None
-    message: str | None = None
+    # Allows the model to handle both strings and Path objects automatically
+    model_config = ConfigDict(arbitrary_types_allowed=True)
+    status: Literal["success", "pending", "failure", "cached", "error"]
+    task_id: Optional[str] = None
+    message: Optional[str] = None
     result: List[Detection] = []
-    original_image_path: str | None = None
-    cropped_image_path: str | None = None
-    file_hash: str | None = None
+    original_image_path: Optional[str] = None
+    cropped_image_path: Optional[str] = None
+    file_hash: Optional[str] = None

@@ -4,7 +4,7 @@ import aiofiles
 from werkzeug.utils import secure_filename
 import uuid
 import os
-from app.core.settings import settings
+from app.settings import settings
 
 
 class ImageProcessor:

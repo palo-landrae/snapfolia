@@ -1,5 +1,5 @@
 from celery import Celery
-from app.core.settings import settings
+from app.settings import settings
 
 
 # app/workers/api_client.py (or wherever your API initializes celery)

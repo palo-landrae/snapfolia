@@ -91,6 +91,8 @@ def detect_object_and_crop(
 
         raw_results = engine.predict(img, confidence=confidence)
 
+        logging.info(f"Raw detection results for {image_path_str}: {raw_results}")
+
         if raw_results["status"] == "error":
             return raw_results
 

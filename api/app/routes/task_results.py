@@ -7,29 +7,29 @@ from fastapi.responses import StreamingResponse
 from celery.result import AsyncResult
 
 from app.services.celery import celery
-from app.core.schema import DetectionResponse
+from app.schema import ClassificationResponse
 
 router = APIRouter()
 logger = logging.getLogger(__name__)
 
 
-@router.get("/result/{task_id}", response_model=DetectionResponse)
+@router.get("/result/{task_id}", response_model=ClassificationResponse)
 def get_result(task_id: str):
     """
-    Poll for the result of a detection task.
+    Poll for the result of a classification task.
     """
     task = AsyncResult(task_id, app=celery)
 
     if task.state == "PENDING":
-        return DetectionResponse(status="pending", task_id=task_id, result=[])
+        return ClassificationResponse(status="pending", task_id=task_id, results=[])
 
     if task.state == "FAILURE":
-        return DetectionResponse(status="failure", task_id=task_id, result=[])
+        return ClassificationResponse(status="failure", task_id=task_id, results=[])
 
     if task.state == "SUCCESS":
-        return DetectionResponse(**task.result)
+        return ClassificationResponse(**task.result)
 
-    return DetectionResponse(status=task.state.lower(), task_id=task_id, result=[])
+    return ClassificationResponse(status=task.state.lower(), task_id=task_id, results=[])
 
 
 @router.get("/result/{task_id}/image")
@@ -49,8 +49,8 @@ def get_result_image(task_id: str, padding: int = 10):
     # 2. Extract Data from Task Result
     # task.result is the dict returned by your worker
     result_data = task.result
-    detections = result_data.get("result", [])
-    image_path = result_data.get("image_path")
+    detections = result_data.get("detections", [])
+    image_path = result_data.get("original_image_path")
 
     if not image_path or not detections:
         raise HTTPException(

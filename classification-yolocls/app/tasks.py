@@ -1,34 +1,44 @@
 import cv2
 import logging
 from typing import Any, Dict, Optional
-
-from app.client import celery_app
-from app.engine import YoloClsEngine
+from celery.signals import worker_process_init
+from app.services.celery_client import celery_app
+from app.services.cls_engine import YoloClsEngine
 from app.schema import ClassificationResponse, DetectionResponse
 from app.settings import settings
-from app.redis_cache import cache_service
+from app.services.redis_client import RedisClient
 
 # Setup structured logging
 logger = logging.getLogger(__name__)
 
 
-class ClassificationTask:
+class WorkerContainer:
     """
     Encapsulates the object classification logic to avoid global variable issues
     and improve testability.
     """
-
     _engine: Optional[YoloClsEngine] = None
+    _cache_service: Optional[RedisClient] = None
 
     @classmethod
-    def get_engine(cls) -> YoloClsEngine:
-        """Lazy loader for the YOLO engine to conserve worker memory."""
+    def get_engine(cls):
         if cls._engine is None:
-            logger.info(
-                f"Initializing YOLO engine with model: {settings.CLS_MODEL_PATH}"
-            )
             cls._engine = YoloClsEngine(settings.CLS_MODEL_PATH)
         return cls._engine
+    
+    @classmethod
+    def get_cache_service(cls):
+        if cls._cache_service is None:
+            cls._cache_service = RedisClient(settings.REDIS_URL)
+        return cls._cache_service
+
+@worker_process_init.connect
+def pre_load_model(**kwargs):
+    """
+    Optional: Warm up the model as soon as the worker starts.
+    This prevents the very first request from being slow.
+    """
+    WorkerContainer.get_engine()
 
 
 @celery_app.task(
@@ -57,7 +67,7 @@ def classify_objects(self, detection_response:  Dict[str, Any]) -> Dict[str, Any
             raise ValueError(f"Invalid image format or corrupted file: {image_path}")
 
         # 4. Inference
-        engine = ClassificationTask.get_engine()
+        engine = WorkerContainer.get_engine()
         inference_results = engine.predict(img, top_k=3)
 
         message = f"Task completed successfully. Found {len(inference_results.results)} objects."
@@ -67,8 +77,11 @@ def classify_objects(self, detection_response:  Dict[str, Any]) -> Dict[str, Any
             results=inference_results.results,
             speed_ms=inference_results.speed_ms,
             task_id=self.request.id,
-            image_path=image_path,
+            detections=data.result,
+            original_image_path=data.original_image_path,
+            cropped_image_path=data.cropped_image_path,
             message=message,
+            file_hash=data.file_hash,
         )
 
         logger.info(
@@ -76,6 +89,16 @@ def classify_objects(self, detection_response:  Dict[str, Any]) -> Dict[str, Any
         )
 
         json_response = response_dict.model_dump()
+
+        cache_service = WorkerContainer.get_cache_service()
+
+        file_hash = data.file_hash
+        if file_hash is None:
+            logger.error("Received None instead of a valid file hash")
+            return {"status": "error", "message": "No file hash provided"}
+        cache_key = cache_service.generate_cache_key(file_hash, version="v1")
+        cache_service.set_json(cache_key, json_response)
+        logger.info(f"Cached results for {image_path} with key {cache_key}")
 
         return json_response
 
