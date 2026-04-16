@@ -56,6 +56,5 @@ async def start_pipeline(file: UploadFile):
         status="pending",
         task_id=str(result.id),  # This is the ID of the LAST task in the chain
         original_image_path=str(file_path),
-        results=[],
         file_hash=file_hash,
     )

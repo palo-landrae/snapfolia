@@ -1,0 +1,194 @@
+services:
+  traefik:
+    image: traefik:v3.0
+    container_name: snapfolia-traefik
+    restart: always
+    ports:
+      - "80:80"
+      - "443:443"
+      - "8080:8080"
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+      - ./traefik/traefik.yml:/etc/traefik/traefik.yml:ro
+      - ./traefik/acme.json:/etc/traefik/acme.json
+    networks:
+      - proxy-net
+  mongodb:
+    image: mongo:8.2.6
+    container_name: snapfolia-mongodb
+    restart: always
+    environment:
+      MONGO_INITDB_ROOT_USERNAME: ${MONGO_USER}
+      MONGO_INITDB_ROOT_PASSWORD: ${MONGO_PASS}
+    volumes:
+      - mongodb_data:/data/db
+    networks:
+      - backend-net
+
+  mongo-express:
+    image: mongo-express:1.0.2-20-alpine3.19
+    container_name: snapfolia-mongo-express
+    restart: always
+    environment:
+      ME_CONFIG_MONGODB_SERVER: mongodb
+      ME_CONFIG_MONGODB_PORT: 27017
+      ME_CONFIG_MONGODB_ADMINUSERNAME: ${MONGO_USER}
+      ME_CONFIG_MONGODB_ADMINPASSWORD: ${MONGO_PASS}
+      ME_CONFIG_SITE_BASEURL: /mongo
+    networks:
+      - proxy-net
+      - backend-net
+    depends_on:
+      - mongodb
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.routers.mongo.rule=Host(`${DOMAIN_NAME}`) || Host(`192.168.1.101`) && PathPrefix(`/mongo`)"
+      - "traefik.http.routers.mongo.entrypoints=web"
+      - "traefik.http.middlewares.mongo-stripprefix.stripprefix.prefixes=/mongo"
+      - "traefik.http.routers.mongo.middlewares=mongo-stripprefix@docker"
+      - "traefik.http.services.mongo.loadbalancer.server.port=8081"
+      - "traefik.docker.network=proxy-net"
+
+  redis:
+    image: redis:7-alpine
+    container_name: snapfolia-redis
+    restart: always
+    volumes:
+      - redis_data:/data
+    networks:
+      - backend-net
+  rabbitmq:
+    image: rabbitmq:4-management-alpine
+    container_name: snapfolia-rabbitmq
+    restart: always
+    environment:
+      RABBITMQ_DEFAULT_USER: ${RABBIT_USER}
+      RABBITMQ_DEFAULT_PASS: ${RABBIT_PASS}
+    networks:
+      - backend-net
+  api:
+    build: ./api
+    container_name: snapfolia-api
+    restart: always
+    depends_on:
+      - redis
+    environment:
+      REDIS_URL: ${REDIS_URL}
+      UPLOAD_DIR: ${UPLOAD_DIR}
+      RABBITMQ_URL: amqp://${RABBIT_USER}:${RABBIT_PASS}@rabbitmq:5672//
+    volumes:
+      - ${LOCAL_UPLOAD_PATH}:${UPLOAD_DIR}
+    networks:
+      - proxy-net
+      - backend-net
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.routers.api.rule=Host(`${DOMAIN_NAME}`) || Host(`192.168.1.101`)"
+      - "traefik.docker.network=proxy-net"
+      #- "traefik.http.routers.api.entrypoints=websecure"
+      #- "traefik.http.routers.api.tls.certresolver=letsencrypt"
+      - "traefik.http.routers.api.entrypoints=web"
+      - "traefik.http.services.api.loadbalancer.server.port=8000"
+  detection:
+    build:
+      context: ./detection-yolo
+      dockerfile: Dockerfile.palo
+    image: palolandrae/snapfolia-detection:v1.0
+    container_name: snapfolia-detection
+    environment:
+      REDIS_URL: ${REDIS_URL}
+      YOLO_MODEL_PATH: ${YOLO_MODEL_PATH}
+      UPLOAD_DIR: ${UPLOAD_DIR}
+      RABBITMQ_URL: amqp://${RABBIT_USER}:${RABBIT_PASS}@rabbitmq:5672//
+    volumes:
+      - ${LOCAL_UPLOAD_PATH}:${UPLOAD_DIR}
+      - yolo_data:/app/models:ro
+    networks:
+      - backend-net
+    depends_on:
+      redis:
+        condition: service_started
+      yolo-loader:
+        condition: service_completed_successfully
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: 1
+              capabilities: [ gpu, compute, utility ]
+  classification:
+    build:
+      context: ./classification-efficientnet-b0
+      dockerfile: Dockerfile
+    image: palolandrae/snapfolia-cls-efficientnet-b0:v1.0
+    container_name: snapfolia-classification
+    environment:
+      REDIS_URL: ${REDIS_URL}
+      CLS_MODEL_PATH: ${CLS_MODEL_PATH}
+      UPLOAD_DIR: ${UPLOAD_DIR}
+      RABBITMQ_URL: amqp://${RABBIT_USER}:${RABBIT_PASS}@rabbitmq:5672//
+    volumes:
+      - ${LOCAL_UPLOAD_PATH}:${UPLOAD_DIR}
+      - efficientnet_cls_data:/app/models:ro
+    networks:
+      - backend-net
+    depends_on:
+      redis:
+        condition: service_started
+      en-cls-loader:
+        condition: service_completed_successfully
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: 1
+              capabilities: [ gpu, compute, utility ]
+  flower:
+    image: mher/flower:2.0
+    container_name: snapfolia-flower
+    environment:
+      - CELERY_BROKER_URL=amqp://${RABBIT_USER}:${RABBIT_PASS}@rabbitmq:5672//
+      - FLOWER_BROKER_API=http://${RABBIT_USER}:${RABBIT_PASS}@rabbitmq:15672/api/
+      - FLOWER_PORT=5555
+      - FLOWER_BASIC_AUTH=admin:yourpassword123
+    networks:
+      - proxy-net
+      - backend-net
+    labels:
+      - "traefik.enable=true"
+      # 1. The Router
+      - "traefik.http.routers.flower.rule=Host(`${DOMAIN_NAME}`) || Host(`192.168.1.101`) && PathPrefix(`/flower`)"
+      - "traefik.http.routers.flower.entrypoints=web"
+      - "traefik.http.routers.flower.middlewares=flower-stripprefix@docker"
+      # 2. The Middleware Definition
+      - "traefik.http.middlewares.flower-stripprefix.stripprefix.prefixes=/flower"
+      # 3. The Service
+      - "traefik.http.services.flower.loadbalancer.server.port=5555"
+      - "traefik.docker.network=proxy-net"
+
+  yolo-loader:
+    build: ./models/yolo-cuda11.8
+    container_name: snapfolia-yolo-loader
+    volumes:
+      - yolo_data:/models
+    command: "true"
+  en-cls-loader:
+    build: ./models/efficientnet-b0-cuda13.0
+    container_name: snapfolia-en-cls-loader
+    volumes:
+      - efficientnet_cls_data:/models
+    command: "true"
+
+volumes:
+  mongodb_data:
+  redis_data:
+  yolo_data:
+  efficientnet_cls_data:
+
+
+networks:
+  proxy-net:
+  backend-net:
+    internal: true

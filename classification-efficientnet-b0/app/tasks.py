@@ -3,10 +3,11 @@ import logging
 from typing import Any, Dict, Optional
 from celery.signals import worker_process_init
 from app.services.celery_client import celery_app
-from app.services.cls_engine import YoloClsEngine
+from app.services.cls_engine import EfficientNetEngine
 from app.schema import ClassificationResponse, DetectionResponse
 from app.settings import settings
 from app.services.redis_client import RedisClient
+
 
 # Setup structured logging
 logger = logging.getLogger(__name__)
@@ -18,13 +19,15 @@ class WorkerContainer:
     and improve testability.
     """
 
-    _engine: Optional[YoloClsEngine] = None
+    _engine: Optional[EfficientNetEngine] = None
     _cache_service: Optional[RedisClient] = None
 
     @classmethod
     def get_engine(cls):
         if cls._engine is None:
-            cls._engine = YoloClsEngine(settings.CLS_MODEL_PATH)
+            cls._engine = EfficientNetEngine(
+                settings.CLS_MODEL_PATH, settings.CLASS_MAP
+            )
         return cls._engine
 
     @classmethod
@@ -57,6 +60,9 @@ def classify_objects(self, detection_response: Dict[str, Any]) -> Dict[str, Any]
 
     try:
         data = DetectionResponse.model_validate(detection_response)
+        logging.info(
+            f"Received classification task for image: {data.detections.results[0] if data.detections else 'N/A'}"
+        )
         image_path = data.cropped_image_path
         if image_path is None:
             logger.error("Received None instead of a valid image path")
@@ -89,7 +95,7 @@ def classify_objects(self, detection_response: Dict[str, Any]) -> Dict[str, Any]
             message + f" (task_id: {self.request.id}, image_path: {image_path})"
         )
 
-        json_response = response_dict.model_dump()
+        json_response = response_dict.model_dump(mode="json")
 
         cache_service = WorkerContainer.get_cache_service()
 
@@ -100,6 +106,8 @@ def classify_objects(self, detection_response: Dict[str, Any]) -> Dict[str, Any]
         cache_key = cache_service.generate_cache_key(file_hash, version="v1")
         cache_service.set_json(cache_key, json_response)
         logger.info(f"Cached results for {image_path} with key {cache_key}")
+
+        cache_service.push_to_stream("scan_stream", json_response)
 
         return json_response
 

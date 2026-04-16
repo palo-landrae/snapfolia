@@ -1,7 +1,7 @@
 from pydantic_settings import BaseSettings, SettingsConfigDict
 from pydantic import Field
-from typing import List
 from pathlib import Path
+from app.class_map import CLASS_MAP
 
 # Adjusting to ensure we find the .env at the project root
 BASE_DIR = Path(__file__).resolve().parents[2]
@@ -15,11 +15,11 @@ class Settings(BaseSettings):
         case_sensitive=True,
         extra="ignore",
     )
+    REDIS_URL: str = Field(default="redis://localhost:6379/0")
     RABBITMQ_URL: str = Field(default="amqp://guest:guest@rabbitmq:5672//")
     UPLOAD_DIR: str = Field(default="/volumes/images")
-    REDIS_URL: str = Field(default="redis://localhost:6379/0")
-    MODEL_VERSION: str = Field(default="v1")
-    YOLO_MODEL_PATH: str = Field(default="/app/models/best.engine")
+    CLS_MODEL_PATH: str = Field(default="/app/models/best.pt")
+    CLASS_MAP: dict[int, str] = CLASS_MAP
 
 
 settings = Settings()

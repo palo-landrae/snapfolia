@@ -1,0 +1,34 @@
+# --- Python Specific ---
+**/__pycache__/
+**/*.py[cod]
+**/*$py.class
+.pytest_cache/
+.venv/
+venv/
+env/
+.env
+
+# --- Machine Learning & Large Files ---
+# Ignore local weights if you are downloading them inside the Dockerfile
+# But if you manually put them in the app, comment these out.
+**/*.pt
+**/*.pth
+**/*.weights
+datasets/
+runs/
+*.log
+
+# --- Project & IDE ---
+.git
+.gitignore
+.dockerignore
+.vscode/
+.idea/
+README.md
+LICENSE
+
+# --- App Specific Data ---
+# You don't want to bake your local test uploads into the production image
+static/uploads/
+data/
+temp/

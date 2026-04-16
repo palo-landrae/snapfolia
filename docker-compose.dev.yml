@@ -1,0 +1,212 @@
+services:
+  # --- DATABASES ---
+  mongodb:
+    image: mongo:8.2.6
+    container_name: snapfolia-mongodb
+    restart: always
+    environment:
+      MONGO_INITDB_ROOT_USERNAME: ${MONGO_USER}
+      MONGO_INITDB_ROOT_PASSWORD: ${MONGO_PASS}
+    ports:
+      - "27017:27017" # Access DB directly from host
+    volumes:
+      - mongodb_data:/data/db
+    networks:
+      backend-net:
+        aliases:
+          - mongo #
+
+  mongo-express:
+    image: mongo-express:1.0.2-20-alpine3.19
+    container_name: snapfolia-mongo-express
+    restart: always
+    environment:
+      # We use the internal service name 'mongodb' here
+      ME_CONFIG_MONGODB_SERVER: mongodb
+      ME_CONFIG_MONGODB_PORT: 27017
+
+      ME_CONFIG_MONGODB_ADMINUSERNAME: ${MONGO_USER}
+      ME_CONFIG_MONGODB_ADMINPASSWORD: ${MONGO_PASS}
+
+      # 2. NEW: Credentials for the Web Interface (The browser popup)
+      # Change these so you know exactly what to type
+      ME_CONFIG_BASICAUTH_USERNAME: admin
+      ME_CONFIG_BASICAUTH_PASSWORD: password123
+
+      # 3. Session Security (Prevents loops due to session collisions)
+      ME_CONFIG_SITE_COOKIESECRET: "choose-a-random-string"
+      ME_CONFIG_SITE_SESSIONSECRET: "another-random-string"
+    ports:
+      - "8081:8081" # Access UI at http://localhost:8081
+    networks:
+      - backend-net
+    depends_on:
+      - mongodb
+
+  redis:
+    image: redis:7-alpine
+    container_name: snapfolia-redis
+    restart: always
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+    networks:
+      - backend-net
+
+  rabbitmq:
+    image: rabbitmq:4-management-alpine
+    container_name: snapfolia-rabbitmq
+    restart: always
+    environment:
+      RABBITMQ_DEFAULT_USER: ${RABBIT_USER}
+      RABBITMQ_DEFAULT_PASS: ${RABBIT_PASS}
+    ports:
+      - "5672:5672" # RabbitMQ Port
+      - "15672:15672" # RabbitMQ Management UI at http://localhost:15672
+    networks:
+      - backend-net
+
+  # --- APPLICATION SERVICES ---
+  db_init:
+    build: ./bulk-writer
+    container_name: snapfolia-db-init
+    restart: "no"
+    depends_on:
+      - mongodb
+    environment:
+      MONGO_URL: mongodb://${MONGO_USER}:${MONGO_PASS}@mongodb:27017/
+    command: python init_db.py
+    networks:
+      - backend-net
+
+  bulk-writer:
+    build: ./bulk-writer
+    container_name: snapfolia-bulk-writer
+    restart: always
+    depends_on:
+      - mongodb
+      - redis
+    environment:
+      MONGO_URL: mongodb://${MONGO_USER}:${MONGO_PASS}@mongodb:27017/
+      REDIS_URL: ${REDIS_URL}
+      UPLOAD_DIR: ${UPLOAD_DIR}
+    volumes:
+      - ${LOCAL_UPLOAD_PATH}:${UPLOAD_DIR}
+    networks:
+      - backend-net
+
+  api:
+    build: ./api
+    container_name: snapfolia-api
+    restart: always
+    depends_on:
+      - redis
+      - mongodb
+    environment:
+      REDIS_URL: redis://redis:6379/0
+      UPLOAD_DIR: ${UPLOAD_DIR}
+      RABBITMQ_URL: amqp://${RABBIT_USER}:${RABBIT_PASS}@rabbitmq:5672//
+      MONGO_URL: mongodb://${MONGO_USER}:${MONGO_PASS}@mongodb:27017/
+    ports:
+      - "8000:8000" # Access API at http://localhost:8000
+    volumes:
+      - ${LOCAL_UPLOAD_PATH}:${UPLOAD_DIR}
+    networks:
+      - backend-net
+
+  detection:
+    build:
+      context: ./detection-yolo
+      dockerfile: Dockerfile.palo
+    image: palolandrae/snapfolia-detection:v1.0
+    container_name: snapfolia-detection
+    environment:
+      REDIS_URL: redis://redis:6379/0
+      YOLO_MODEL_PATH: ${YOLO_MODEL_PATH}
+      UPLOAD_DIR: ${UPLOAD_DIR}
+      RABBITMQ_URL: amqp://${RABBIT_USER}:${RABBIT_PASS}@rabbitmq:5672//
+    volumes:
+      - ${LOCAL_UPLOAD_PATH}:${UPLOAD_DIR}
+      - yolo_data:/app/models:ro
+    networks:
+      - backend-net
+    depends_on:
+      redis:
+        condition: service_started
+      yolo-loader:
+        condition: service_completed_successfully
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: 1
+              capabilities: [ gpu, compute, utility ]
+
+  classification:
+    build:
+      context: ./classification-efficientnet-b0
+      dockerfile: Dockerfile
+    image: palolandrae/snapfolia-cls-efficientnet-b0:v1.0
+    container_name: snapfolia-classification
+    environment:
+      REDIS_URL: redis://redis:6379/0
+      CLS_MODEL_PATH: ${CLS_MODEL_PATH}
+      UPLOAD_DIR: ${UPLOAD_DIR}
+      RABBITMQ_URL: amqp://${RABBIT_USER}:${RABBIT_PASS}@rabbitmq:5672//
+    volumes:
+      - ${LOCAL_UPLOAD_PATH}:${UPLOAD_DIR}
+      - efficientnet_cls_data:/app/models:ro
+    networks:
+      - backend-net
+    depends_on:
+      redis:
+        condition: service_started
+      en-cls-loader:
+        condition: service_completed_successfully
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: 1
+              capabilities: [ gpu, compute, utility ]
+
+  flower:
+    image: mher/flower:2.0
+    container_name: snapfolia-flower
+    environment:
+      - CELERY_BROKER_URL=amqp://${RABBIT_USER}:${RABBIT_PASS}@rabbitmq:5672//
+      - FLOWER_BROKER_API=http://${RABBIT_USER}:${RABBIT_PASS}@rabbitmq:15672/api/
+      - FLOWER_PORT=5555
+      - FLOWER_BASIC_AUTH=admin:yourpassword123
+    ports:
+      - "5555:5555" # Access Flower at http://localhost:5555
+    networks:
+      - backend-net
+
+  # --- MODEL LOADERS ---
+  yolo-loader:
+    build: ./models/yolo-cuda11.8
+    container_name: snapfolia-yolo-loader
+    volumes:
+      - yolo_data:/models
+    command: "true"
+
+  en-cls-loader:
+    build: ./models/efficientnet-b0-cuda13.0
+    container_name: snapfolia-en-cls-loader
+    volumes:
+      - efficientnet_cls_data:/models
+    command: "true"
+
+volumes:
+  mongodb_data:
+  redis_data:
+  yolo_data:
+  efficientnet_cls_data:
+
+
+networks:
+  backend-net: # No longer internal so you can debug more easily if needed

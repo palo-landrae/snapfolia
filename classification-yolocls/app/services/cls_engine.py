@@ -3,7 +3,7 @@ import torch
 import numpy as np
 from typing import List
 from ultralytics import YOLO
-from app.schema import Classification, InferenceResult, SpeedMetrics
+from app.schema import Classification, ClassificationInferenceResult, SpeedMetrics
 
 
 # Standardized logging
@@ -33,13 +33,13 @@ class YoloClsEngine:
             self.ready = False
             logger.error(f"Critical failure loading YOLO model: {e}", exc_info=True)
 
-    def predict(self, img: np.ndarray, top_k: int = 3) -> InferenceResult:
+    def predict(self, img: np.ndarray, top_k: int = 3) -> ClassificationInferenceResult:
         """
         Performs object classification inference on the provided image.
         """
         if not self.ready or self.model is None:
             logger.error("Inference attempted on uninitialized or failed engine.")
-            return InferenceResult(
+            return ClassificationInferenceResult(
                 status="failure",
                 message="Engine not initialized",
                 results=[],
@@ -73,8 +73,9 @@ class YoloClsEngine:
                     )
 
             # 3. Return a combined response
-            return InferenceResult(
+            return ClassificationInferenceResult(
                 status="success",
+                message=f"Inference completed successfully. Top-{top_k} classifications extracted.",
                 results=classifications,
                 speed_ms=SpeedMetrics(
                     preprocess=round(speed_metrics.get("preprocess", 0), 2),
@@ -82,11 +83,12 @@ class YoloClsEngine:
                     postprocess=round(speed_metrics.get("postprocess", 0), 2),
                     total=round(sum(speed_metrics.values()), 2),
                 ),
+                device=self.device,
             )
 
         except Exception as e:
             logger.exception(f"Inference error: {e}")
-            return InferenceResult(
+            return ClassificationInferenceResult(
                 status="failure",
                 message=str(e),
                 results=[],

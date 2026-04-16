@@ -93,11 +93,11 @@ def detect_object_and_crop(
 
         logging.info(f"Raw detection results for {image_path_str}: {raw_results}")
 
-        if raw_results["status"] == "error":
-            return raw_results
+        if raw_results.status == "error":
+            return raw_results.model_dump()
 
         # 3. Extract Detections (Turn dict back into Pydantic for logic)
-        detections = [Detection(**d) for d in raw_results["result"]]
+        detections = raw_results.results if raw_results.results else []
 
         # 4. Crop the best detection (if any)
         cropped_path_str = None
@@ -117,7 +117,7 @@ def detect_object_and_crop(
         response = DetectionResponse(
             status="success",
             task_id=self.request.id,
-            result=detections,
+            detections=raw_results,
             original_image_path=str(image_path),
             cropped_image_path=cropped_path_str,
             file_hash=file_hash,

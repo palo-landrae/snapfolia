@@ -14,5 +14,8 @@ celery.conf.update(
     result_serializer="json",
     accept_content=["json"],
     # CRITICAL: The API must know where to route the task!
-    task_routes={"detect_objects_task": {"queue": "detection"}},
+    task_routes=[
+        {"object_detection_task": {"queue": "detection"}},
+        {"classify_objects_task": {"queue": "classification"}},
+    ],
 )
