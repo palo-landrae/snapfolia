@@ -34,6 +34,7 @@ class Context(BaseModel):
     device_model: Optional[str] = None
     app_version: Optional[str] = None
 
+
 class Validation(BaseModel):
     user_confirmed: Optional[bool] = None
     correction: Optional[bool] = None

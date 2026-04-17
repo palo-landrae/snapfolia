@@ -18,7 +18,7 @@ class Settings(BaseSettings):
     REDIS_URL: str = Field(default="redis://localhost:6379/0")
     RABBITMQ_URL: str = Field(default="amqp://guest:guest@rabbitmq:5672//")
     UPLOAD_DIR: str = Field(default="/volumes/images")
-    CLS_MODEL_PATH: str = Field(default="/app/models/best.pt")
+    CLS_MODEL_PATH: str = Field(default="/app/models/best.engine")
     CLASS_MAP: dict[int, str] = CLASS_MAP
 
 

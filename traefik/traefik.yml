@@ -1,26 +1,26 @@
 api:
   dashboard: true
-  insecure: true
+  insecure: false
+
 entryPoints:
   web:
     address: ":80"
-    #http:
-    #  redirections:
-    #    entryPoint:
-    #      to: websecure
-    #      scheme: https
+    http:
+      redirections:
+        entryPoint:
+          to: websecure
+          scheme: https
   websecure:
     address: ":443"
-
-#certificatesResolvers:
-#  letsencrypt:
-#    acme:
-#      email: louiandraepalo@gmail.com
-#      storage: /etc/traefik/acme.json
-#      httpChallenge:
-#        entryPoint: web
 
 providers:
   docker:
     exposedByDefault: false
-    endpoint: "unix:///var/run/docker.sock"
+    network: backend-net
+
+certificatesResolvers:
+  myresolver:
+    acme:
+      email: admin@firstasia.edu.ph
+      storage: /letsencrypt/acme.json
+      tlsChallenge: {}

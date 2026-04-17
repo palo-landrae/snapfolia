@@ -1,0 +1,55 @@
+# ==========================================
+# STAGE 1: The Builder (Huge, but temporary)
+# ==========================================
+FROM nvcr.io/nvidia/pytorch:26.03-py3 AS builder
+
+WORKDIR /build
+
+# 1. Install build-essential for pycuda compilation
+RUN apt-get update && apt-get install -y build-essential && rm -rf /var/lib/apt/lists/*
+
+# 2. Create a self-contained virtual environment
+RUN python3 -m venv /opt/venv
+ENV PATH="/opt/venv/bin:$PATH"
+
+# 3. Install heavy dependencies
+# We use --no-cache-dir to keep the builder layer as clean as possible
+RUN pip install --upgrade pip
+RUN pip install --no-cache-dir \
+    celery redis pydantic pydantic_settings pillow \
+    opencv-python-headless \
+    tensorrt_cu13
+
+# 4. Compile pycuda (This requires the nvcc and headers in the builder image)
+RUN pip install --no-cache-dir pycuda
+
+
+# ==========================================
+# STAGE 2: The Runtime (Lean and Production-Ready)
+# ==========================================
+# We use the 'runtime' flavor which has CUDA/TRT libs but no compilers/headers
+FROM nvcr.io/nvidia/pytorch:26.03-py3
+
+WORKDIR /app
+
+# 1. Install only the essential shared libraries (OpenCV needs these)
+RUN apt-get update && apt-get install -y \
+    libglib2.0-0 \
+    libgl1 \
+    && rm -rf /var/lib/apt/lists/*
+
+# 2. Copy the entire virtual environment from the builder
+COPY --from=builder /opt/venv /opt/venv
+
+# 3. Ensure the app uses the venv
+ENV PATH="/opt/venv/bin:$PATH"
+ENV PYTHONDONTWRITEBYTECODE=1
+ENV PYTHONUNBUFFERED=1
+
+# 4. Copy your application code
+COPY ./app ./app
+
+# Optional: If you have a pre-built .engine file, copy it here
+# COPY ./models/efficientnet_b0.engine /app/models/
+
+CMD ["celery", "-A", "app.services.celery_client", "worker", "-Q", "classification", "--loglevel=info", "-E"]
